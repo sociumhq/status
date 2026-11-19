@@ -1,0 +1,32 @@
+{
+  "checks": [
+    {
+      "id": "licenses-health",
+      "name": "Проверка лицензий (через прокладку)",
+      "url": "https://licenses.thredium.app/health",
+      "expect_status": 200,
+      "critical": true
+    },
+    {
+      "id": "licenses-ready",
+      "name": "Сервер лицензий готов (база, Redis, worker)",
+      "url": "https://licenses.thredium.app/api/v1/health/ready",
+      "expect_status": 200,
+      "critical": true
+    },
+    {
+      "id": "site",
+      "name": "Сайт thredium.app",
+      "url": "https://thredium.app/",
+      "expect_status": 200,
+      "critical": false
+    },
+    {
+      "id": "cabinet",
+      "name": "Кабинет app.thredium.app",
+      "url": "https://app.thredium.app/",
+      "expect_status": 200,
+      "critical": false
+    }
+  ]
+}
