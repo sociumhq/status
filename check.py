@@ -77,13 +77,41 @@ def telegram(text: str) -> None:
         print(f"telegram failed: {type(error).__name__}", file=sys.stderr)
 
 
-def main() -> int:
-    repo = os.environ["GITHUB_REPOSITORY"]
-    checks = json.loads(Path(__file__).with_name("checks.json").read_text(encoding="utf-8"))["checks"]
+def open_incidents(repo: str) -> dict:
     # No ?labels= filter: GitHub's label index lags a new issue by seconds, the plain list does not.
     open_issues = github("GET", f"/repos/{repo}/issues?state=open&per_page=100") or []
-    by_label = {label["name"]: issue for issue in open_issues for label in issue.get("labels", [])
-                if label["name"].startswith("down:")}
+    return {label["name"]: issue for issue in open_issues for label in issue.get("labels", [])
+            if label["name"].startswith("down:")}
+
+
+def main() -> int:
+    """One round, or with ``--loop-minutes N`` a round every ``--interval`` seconds for N minutes.
+
+    GitHub runs a ``*/5`` schedule rarely (once in 13 hours on 2026-11-19), so the workflow keeps one job looping
+    for almost six hours and dispatches the next one itself; the schedule only restarts a broken chain. Within a
+    run the open incidents are kept in memory (read once at the start), so a fresh issue is never opened twice.
+    """
+    args = sys.argv[1:]
+    loop_minutes = int(args[args.index("--loop-minutes") + 1]) if "--loop-minutes" in args else 0
+    interval = int(args[args.index("--interval") + 1]) if "--interval" in args else 300
+    repo = os.environ["GITHUB_REPOSITORY"]
+    checks = json.loads(Path(__file__).with_name("checks.json").read_text(encoding="utf-8"))["checks"]
+    by_label = open_incidents(repo)
+    deadline = time.monotonic() + loop_minutes * 60
+    while True:
+        started = time.monotonic()
+        try:
+            run_round(repo, checks, by_label)
+        except Exception as error:  # noqa: BLE001 — a GitHub API hiccup must not end a six-hour watch
+            print(f"round failed: {type(error).__name__}: {str(error)[:200]}", file=sys.stderr)
+        sys.stdout.flush()
+        wait = interval - (time.monotonic() - started)
+        if time.monotonic() + max(wait, 0) >= deadline:
+            return 0
+        time.sleep(max(wait, 0))
+
+
+def run_round(repo: str, checks: list, by_label: dict) -> None:
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y-%m-%d %H:%M UTC")
     failures = 0
@@ -96,7 +124,7 @@ def main() -> int:
             failures += 1
         if not ok and issue is None:
             level = "🔴 КРИТИЧНО" if check.get("critical") else "🟠"
-            github("POST", f"/repos/{repo}/issues", {
+            by_label[label] = github("POST", f"/repos/{repo}/issues", {
                 "title": f"{check['name']} не отвечает",
                 "body": f"С {stamp}: `{check['url']}` — {reason}.\n\nИсследуйте по `socium-infra` "
                         "(`main-server.md`, `relay/README.md`). Issue закроется сам, когда проверка пройдёт.",
@@ -108,9 +136,9 @@ def main() -> int:
             github("POST", f"/repos/{repo}/issues/{issue['number']}/comments",
                    {"body": f"Восстановилось в {stamp} ({reason}), простой около {minutes} мин."})
             github("PATCH", f"/repos/{repo}/issues/{issue['number']}", {"state": "closed"})
+            by_label.pop(label, None)
             telegram(f"🟢 {check['name']} снова работает\nпростой около {minutes} мин\n{stamp}")
-    print(f"{len(checks) - failures}/{len(checks)} checks passed")
-    return 0
+    print(f"{stamp}: {len(checks) - failures}/{len(checks)} checks passed")
 
 
 if __name__ == "__main__":
