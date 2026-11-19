@@ -80,7 +80,8 @@ def telegram(text: str) -> None:
 def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     checks = json.loads(Path(__file__).with_name("checks.json").read_text(encoding="utf-8"))["checks"]
-    open_issues = github("GET", f"/repos/{repo}/issues?state=open&labels=incident&per_page=100") or []
+    # No ?labels= filter: GitHub's label index lags a new issue by seconds, the plain list does not.
+    open_issues = github("GET", f"/repos/{repo}/issues?state=open&per_page=100") or []
     by_label = {label["name"]: issue for issue in open_issues for label in issue.get("labels", [])
                 if label["name"].startswith("down:")}
     now = datetime.now(timezone.utc)
