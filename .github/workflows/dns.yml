@@ -1,0 +1,45 @@
+name: dns
+
+# Move a thredium.app A record between the old and the new main server (dns.py). Run by an owner from Actions.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "list, or set"
+        required: true
+        type: choice
+        options: [list, set]
+      name:
+        description: "record name for set, e.g. admin.thredium.app"
+        required: false
+        default: ""
+      side:
+        description: "old or new main server (set)"
+        required: false
+        type: choice
+        options: [new, old]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dns
+  cancel-in-progress: false
+
+jobs:
+  dns:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: DNS
+        env:
+          CLOUDFLARE_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DNS_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          FAILOVER_PRIMARY_IP: ${{ secrets.FAILOVER_PRIMARY_IP }}
+          OLD_MAIN_IP: ${{ secrets.OLD_MAIN_IP }}
+          NEW_MAIN_IP: ${{ secrets.NEW_MAIN_IP }}
+          INPUT_NAME: ${{ inputs.name }}
+          INPUT_SIDE: ${{ inputs.side }}
+        run: |
+          if [ "${{ inputs.action }}" = list ]; then python3 dns.py list; else python3 dns.py set "$INPUT_NAME" "$INPUT_SIDE"; fi
