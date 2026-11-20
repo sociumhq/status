@@ -8,7 +8,7 @@ on:
         description: "list, or set"
         required: true
         type: choice
-        options: [list, set]
+        options: [list, set, create]
       zone:
         description: "zone"
         required: true
@@ -48,4 +48,4 @@ jobs:
           INPUT_NAME: ${{ inputs.name }}
           INPUT_SIDE: ${{ inputs.side }}
         run: |
-          if [ "${{ inputs.action }}" = list ]; then python3 dns.py list; else python3 dns.py set "$INPUT_NAME" "$INPUT_SIDE"; fi
+          case "${{ inputs.action }}" in list) python3 dns.py list ;; *) python3 dns.py "${{ inputs.action }}" "$INPUT_NAME" "$INPUT_SIDE" ;; esac

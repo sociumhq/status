@@ -2,6 +2,7 @@
 
   python3 dns.py list            — A/AAAA/CNAME records; known addresses shown as relay/old-main/new-main
   python3 dns.py set NAME old|new — change the content of exactly one A record NAME (proxied flag and TTL kept)
+  python3 dns.py create NAME old|new — new proxied A record NAME (refused if the name has any record)
 
 Guards: only names in the zone thredium.app, never licenses.thredium.app (failover.py owns it), only A records that
 currently point at the other known main-server address. Secrets: CLOUDFLARE_DNS_TOKEN, CLOUDFLARE_ZONE_ID,
@@ -78,6 +79,23 @@ def main() -> int:
         after = failover.a_records(cfg, name)[0]
         print(f"{name}: {label(row['content'])} -> {label(after['content'])} (proxied={after['proxied']})")
         return 0 if after["content"] == want else 1
+    if len(sys.argv) == 4 and sys.argv[1] == "create" and sys.argv[3] in ("old", "new"):
+        # New proxied A record at one of the two main servers; refuses if any record of that name exists.
+        name, side = sys.argv[2].strip().lower(), sys.argv[3]
+        if not (name == zone or name.endswith("." + zone)) or name == failover.LICENCE_HOST:
+            print(f"refused: {name}")
+            return 1
+        import urllib.parse
+        existing = failover.cloudflare(cfg, "GET", f"/dns_records?name={urllib.parse.quote(name)}") or []
+        if existing:
+            print(f"refused: {name} already has {[r['type'] for r in existing]}")
+            return 1
+        want = os.environ["NEW_MAIN_IP" if side == "new" else "OLD_MAIN_IP"]
+        failover.cloudflare(cfg, "POST", "/dns_records", {"type": "A", "name": name, "content": want, "ttl": 1,
+                                                       "proxied": True, "comment": "socium-status dns.py"})
+        row = failover.a_records(cfg, name)[0]
+        print(f"{name}: created -> {label(row['content'])} (proxied={row['proxied']})")
+        return 0
     print(__doc__)
     return 2
 
