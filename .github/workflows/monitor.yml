@@ -30,6 +30,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # DNS failover of the licence address (failover.py). Empty FAILOVER_RECORD = off.
+          CLOUDFLARE_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DNS_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          FAILOVER_PRIMARY_IP: ${{ secrets.FAILOVER_PRIMARY_IP }}
+          FAILOVER_BACKUP_IP: ${{ secrets.FAILOVER_BACKUP_IP }}
+          FAILOVER_RECORD: ""
         run: python3 check.py --loop-minutes 340 --interval 300
       - name: Start the next watch
         if: always()

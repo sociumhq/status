@@ -20,6 +20,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+import failover
+
 ATTEMPTS = 2
 RETRY_SECONDS = 20
 TIMEOUT_SECONDS = 15
@@ -81,7 +83,7 @@ def open_incidents(repo: str) -> dict:
     # No ?labels= filter: GitHub's label index lags a new issue by seconds, the plain list does not.
     open_issues = github("GET", f"/repos/{repo}/issues?state=open&per_page=100") or []
     return {label["name"]: issue for issue in open_issues for label in issue.get("labels", [])
-            if label["name"].startswith("down:")}
+            if label["name"].startswith(("down:", "failover:"))}
 
 
 def main() -> int:
@@ -97,6 +99,9 @@ def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     checks = json.loads(Path(__file__).with_name("checks.json").read_text(encoding="utf-8"))["checks"]
     by_label = open_incidents(repo)
+    dns = failover.Config()
+    dns_state: dict = {}
+    print(f"failover: {'on for ' + dns.record if dns.enabled else 'off'}")
     deadline = time.monotonic() + loop_minutes * 60
     while True:
         started = time.monotonic()
@@ -104,6 +109,11 @@ def main() -> int:
             run_round(repo, checks, by_label)
         except Exception as error:  # noqa: BLE001 — a GitHub API hiccup must not end a six-hour watch
             print(f"round failed: {type(error).__name__}: {str(error)[:200]}", file=sys.stderr)
+        if dns.enabled:
+            try:
+                run_failover(repo, dns, dns_state, by_label)
+            except Exception as error:  # noqa: BLE001 — Cloudflare hiccup: try again next round
+                print(f"failover failed: {type(error).__name__}: {str(error)[:200]}", file=sys.stderr)
         sys.stdout.flush()
         wait = interval - (time.monotonic() - started)
         if time.monotonic() + max(wait, 0) >= deadline:
@@ -139,6 +149,43 @@ def run_round(repo: str, checks: list, by_label: dict) -> None:
             by_label.pop(label, None)
             telegram(f"🟢 {check['name']} снова работает\nпростой около {minutes} мин\n{stamp}")
     print(f"{stamp}: {len(checks) - failures}/{len(checks)} checks passed")
+
+
+def run_failover(repo: str, cfg: "failover.Config", state: dict, by_label: dict) -> None:
+    """Switch the licence record between relay and main server; one issue (label failover:<record>) while switched."""
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    result = failover.step(cfg, state)
+    print(f"failover {cfg.record}: {result['where']}{' (switched)' if result['changed'] else ''} — {result['reason']}")
+    label, guard_label = f"failover:{cfg.record}", f"failover:guard:{cfg.record}"
+    issue, guard = by_label.get(label), by_label.get(guard_label)
+    if result["where"] == "guard":
+        if guard is None:
+            by_label[guard_label] = github("POST", f"/repos/{repo}/issues", {
+                "title": f"Автопереключение {cfg.record} остановлено",
+                "body": f"С {stamp}: {result['reason']}. Монитор не трогает запись, пока она не вернётся к одному "
+                        "A-адресу прокладки или основного сервера без прокси Cloudflare. См. `failover.py`.",
+                "labels": ["incident", guard_label]})
+            telegram(f"🟠 Автопереключение {cfg.record} остановлено\n{result['reason']}\n{stamp}")
+        return
+    if guard is not None:
+        github("PATCH", f"/repos/{repo}/issues/{guard['number']}", {"state": "closed"})
+        by_label.pop(guard_label, None)
+    if result["where"] == "backup" and issue is None:
+        by_label[label] = github("POST", f"/repos/{repo}/issues", {
+            "title": f"{cfg.record} переключён на основной сервер",
+            "body": f"С {stamp}: {result['reason']}. Desktop ходит за лицензиями напрямую на основной сервер "
+                    "(он сам открыл порт 443). Когда прокладка проработает "
+                    f"{failover.UP_ROUNDS} проверки подряд, запись вернётся на неё и issue закроется. "
+                    "Чинить прокладку: `socium-infra` → `relay/README.md`.",
+            "labels": ["incident", label]})
+        telegram(f"🔴 Прокладка лицензий не отвечает — {cfg.record} переключён на основной сервер\n"
+                 f"{result['reason']}\n{stamp}")
+    elif result["where"] == "primary" and issue is not None:
+        github("POST", f"/repos/{repo}/issues/{issue['number']}/comments",
+               {"body": f"В {stamp} запись вернулась на прокладку ({result['reason']})."})
+        github("PATCH", f"/repos/{repo}/issues/{issue['number']}", {"state": "closed"})
+        by_label.pop(label, None)
+        telegram(f"🟢 {cfg.record} снова через прокладку\n{stamp}")
 
 
 if __name__ == "__main__":

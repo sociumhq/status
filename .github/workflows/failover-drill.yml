@@ -1,0 +1,33 @@
+name: failover-drill
+
+# Exercises failover.py against the test record failover-test.thredium.app (never the live licence record):
+# down = point it at the main server as if the relay died, up = point it back, cleanup = delete the test record.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "down, up or cleanup"
+        required: true
+        type: choice
+        options: [down, up, cleanup]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: failover-drill
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Drill
+        env:
+          CLOUDFLARE_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DNS_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          FAILOVER_PRIMARY_IP: ${{ secrets.FAILOVER_PRIMARY_IP }}
+          FAILOVER_BACKUP_IP: ${{ secrets.FAILOVER_BACKUP_IP }}
+        run: python3 failover.py drill "${{ inputs.action }}"
