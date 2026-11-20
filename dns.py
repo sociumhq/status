@@ -105,9 +105,7 @@ def main() -> int:
             return 1
         import urllib.parse
         rows = failover.cloudflare(cfg, "GET", f"/dns_records?name={urllib.parse.quote(name)}") or []
-        if any(r["type"] not in ("A", "AAAA", "CNAME") for r in rows):
-            print(f"refused: {name} has {[r['type'] for r in rows]}")
-            return 1
+        rows = [r for r in rows if r["type"] in ("A", "AAAA", "CNAME")]  # MX/TXT of the same name stay
         for r in rows:
             failover.cloudflare(cfg, "DELETE", f"/dns_records/{r['id']}")
             print(f"{name}: removed {r['type']} {label(r['content']) if r['type'] == 'A' else r['content']}")
