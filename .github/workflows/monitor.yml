@@ -35,7 +35,7 @@ jobs:
           CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
           FAILOVER_PRIMARY_IP: ${{ secrets.FAILOVER_PRIMARY_IP }}
           FAILOVER_BACKUP_IP: ${{ secrets.FAILOVER_BACKUP_IP }}
-          FAILOVER_RECORD: ""
+          FAILOVER_RECORD: licenses.thredium.app
         run: python3 check.py --loop-minutes 340 --interval 300
       - name: Start the next watch
         if: always()
