@@ -15,6 +15,21 @@ import sys
 import failover
 
 ZONE = "thredium.app"
+ZONES = ("thredium.app", "socium.tools")
+
+
+def zone_id(cfg, name: str) -> str:
+    """Zone id by name (the token is limited to its zones; CLOUDFLARE_ZONE_ID is thredium.app)."""
+    if name == ZONE:
+        return cfg.zone
+    import urllib.request, json
+    request = urllib.request.Request(f"{failover.CF_API}/zones?name={name}", headers={
+        "Authorization": f"Bearer {cfg.token}", "User-Agent": failover.USER_AGENT})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        rows = json.loads(response.read())["result"]
+    if len(rows) != 1:
+        raise RuntimeError(f"zone {name} not visible to the token")
+    return rows[0]["id"]
 
 
 def label(ip: str) -> str:
@@ -25,9 +40,15 @@ def label(ip: str) -> str:
 
 def main() -> int:
     cfg = failover.Config(record="")
+    zone = os.environ.get("INPUT_ZONE") or ZONE
+    if zone not in ZONES:
+        print(f"refused: zone {zone}")
+        return 1
     if not (cfg.token and cfg.zone and os.environ.get("OLD_MAIN_IP") and os.environ.get("NEW_MAIN_IP")):
         print("secrets missing")
         return 1
+    cfg.zone = zone_id(cfg, zone)
+    print(f"zone {zone}")
     if sys.argv[1:2] == ["list"]:
         rows = failover.cloudflare(cfg, "GET", "/dns_records?per_page=500") or []
         for row in sorted(rows, key=lambda r: (r["name"], r["type"])):
@@ -37,7 +58,7 @@ def main() -> int:
         return 0
     if len(sys.argv) == 4 and sys.argv[1] == "set" and sys.argv[3] in ("old", "new"):
         name, side = sys.argv[2].strip().lower(), sys.argv[3]
-        if not (name == ZONE or name.endswith("." + ZONE)) or name == failover.LICENCE_HOST:
+        if not (name == zone or name.endswith("." + zone)) or name == failover.LICENCE_HOST:
             print(f"refused: {name}")
             return 1
         want = os.environ["NEW_MAIN_IP" if side == "new" else "OLD_MAIN_IP"]

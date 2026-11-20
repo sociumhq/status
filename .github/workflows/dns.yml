@@ -9,6 +9,11 @@ on:
         required: true
         type: choice
         options: [list, set]
+      zone:
+        description: "zone"
+        required: true
+        type: choice
+        options: [thredium.app, socium.tools]
       name:
         description: "record name for set, e.g. admin.thredium.app"
         required: false
@@ -39,6 +44,7 @@ jobs:
           FAILOVER_PRIMARY_IP: ${{ secrets.FAILOVER_PRIMARY_IP }}
           OLD_MAIN_IP: ${{ secrets.OLD_MAIN_IP }}
           NEW_MAIN_IP: ${{ secrets.NEW_MAIN_IP }}
+          INPUT_ZONE: ${{ inputs.zone }}
           INPUT_NAME: ${{ inputs.name }}
           INPUT_SIDE: ${{ inputs.side }}
         run: |
