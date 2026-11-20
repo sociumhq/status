@@ -8,7 +8,7 @@ on:
         description: "list, or set"
         required: true
         type: choice
-        options: [list, set, create]
+        options: [list, set, create, replace]
       zone:
         description: "zone"
         required: true

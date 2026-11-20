@@ -2,6 +2,7 @@
 
   python3 dns.py list            — A/AAAA/CNAME records; known addresses shown as relay/old-main/new-main
   python3 dns.py set NAME old|new — change the content of exactly one A record NAME (proxied flag and TTL kept)
+  python3 dns.py replace NAME old|new — socium.tools only: parking A/AAAA/CNAME of NAME -> a main server
   python3 dns.py create NAME old|new — new proxied A record NAME (refused if the name has any record)
 
 Guards: only names in the zone thredium.app, never licenses.thredium.app (failover.py owns it), only A records that
@@ -95,6 +96,25 @@ def main() -> int:
                                                        "proxied": True, "comment": "socium-status dns.py"})
         row = failover.a_records(cfg, name)[0]
         print(f"{name}: created -> {label(row['content'])} (proxied={row['proxied']})")
+        return 0
+    if len(sys.argv) == 4 and sys.argv[1] == "replace" and sys.argv[3] in ("old", "new"):
+        # socium.tools only: drop the registrar's parking A/AAAA/CNAME of NAME and point it at a main server.
+        name, side = sys.argv[2].strip().lower(), sys.argv[3]
+        if zone != "socium.tools" or not (name == zone or name.endswith("." + zone)):
+            print(f"refused: replace works only inside socium.tools ({name})")
+            return 1
+        import urllib.parse
+        rows = failover.cloudflare(cfg, "GET", f"/dns_records?name={urllib.parse.quote(name)}") or []
+        if any(r["type"] not in ("A", "AAAA", "CNAME") for r in rows):
+            print(f"refused: {name} has {[r['type'] for r in rows]}")
+            return 1
+        for r in rows:
+            failover.cloudflare(cfg, "DELETE", f"/dns_records/{r['id']}")
+            print(f"{name}: removed {r['type']} {label(r['content']) if r['type'] == 'A' else r['content']}")
+        want = os.environ["NEW_MAIN_IP" if side == "new" else "OLD_MAIN_IP"]
+        failover.cloudflare(cfg, "POST", "/dns_records", {"type": "A", "name": name, "content": want, "ttl": 1,
+                                                       "proxied": True, "comment": "socium-status dns.py"})
+        print(f"{name}: created -> {label(failover.a_records(cfg, name)[0]['content'])} (proxied)")
         return 0
     print(__doc__)
     return 2
