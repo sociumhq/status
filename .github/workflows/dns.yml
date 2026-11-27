@@ -8,14 +8,14 @@ on:
         description: "list, or set"
         required: true
         type: choice
-        options: [list, set, create, replace]
+        options: [list, set, create, replace, delete]
       zone:
         description: "zone"
         required: true
         type: choice
         options: [thredium.app, socium.tools]
       name:
-        description: "record name for set, e.g. admin.thredium.app"
+        description: "record name for set/create/replace/delete, e.g. admin.thredium.app"
         required: false
         default: ""
       side:

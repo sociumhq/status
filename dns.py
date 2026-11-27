@@ -4,6 +4,7 @@
   python3 dns.py set NAME old|new — change the content of exactly one A record NAME (proxied flag and TTL kept)
   python3 dns.py replace NAME old|new — socium.tools only: parking A/AAAA/CNAME of NAME -> a main server
   python3 dns.py create NAME old|new — new proxied A record NAME (refused if the name has any record)
+  python3 dns.py delete NAME      — remove the A/AAAA/CNAME records of one retired subdomain (MX/TXT stay)
 
 Guards: only names in the zone thredium.app, never licenses.thredium.app (failover.py owns it), only A records that
 currently point at the other known main-server address. Secrets: CLOUDFLARE_DNS_TOKEN, CLOUDFLARE_ZONE_ID,
@@ -18,6 +19,9 @@ import failover
 
 ZONE = "thredium.app"
 ZONES = ("thredium.app", "socium.tools")
+# Names `delete` never touches: the sites, cabinets, store and the Socium admin (and licences, guarded separately).
+KEEP = {"thredium.app", "www.thredium.app", "app.thredium.app", "socium.tools", "www.socium.tools", "app.socium.tools",
+        "market.socium.tools", "admin.socium.tools"}
 
 
 def zone_id(cfg, name: str) -> str:
@@ -113,6 +117,22 @@ def main() -> int:
         failover.cloudflare(cfg, "POST", "/dns_records", {"type": "A", "name": name, "content": want, "ttl": 1,
                                                        "proxied": True, "comment": "socium-status dns.py"})
         print(f"{name}: created -> {label(failover.a_records(cfg, name)[0]['content'])} (proxied)")
+        return 0
+    if len(sys.argv) in (3, 4) and sys.argv[1] == "delete":  # the workflow also passes the side; unused here
+        # A retired subdomain (owner 2026-11-27: admin.thredium.app — Admin lives on admin.socium.tools only).
+        name = sys.argv[2].strip().lower()
+        if not name.endswith("." + zone) or name in KEEP or name == failover.LICENCE_HOST:
+            print(f"refused: {name}")
+            return 1
+        import urllib.parse
+        rows = failover.cloudflare(cfg, "GET", f"/dns_records?name={urllib.parse.quote(name)}") or []
+        rows = [r for r in rows if r["type"] in ("A", "AAAA", "CNAME")]
+        if not rows:
+            print(f"{name}: no A/AAAA/CNAME record")
+            return 0
+        for r in rows:
+            failover.cloudflare(cfg, "DELETE", f"/dns_records/{r['id']}")
+            print(f"{name}: removed {r['type']} {label(r['content']) if r['type'] == 'A' else r['content']}")
         return 0
     print(__doc__)
     return 2
